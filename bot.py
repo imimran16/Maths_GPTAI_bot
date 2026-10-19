@@ -20,13 +20,11 @@ logging.basicConfig(
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-# API configuration
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 
-MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 
-# Conversation history
 chats = defaultdict(lambda: deque(maxlen=12))
 
 INSTRUCTIONS = """
@@ -39,6 +37,36 @@ Show formulas, calculations and the final answer.
 If a question is unclear, ask for clarification.
 Never invent a mathematical result.
 """
+
+available_models = []
+
+
+async def load_models():
+    global available_models
+
+    try:
+        models = await client.aio.models.list()
+        found = []
+
+        async for model in models:
+            actions = model.supported_actions or []
+            name = model.name or ""
+
+            if "generateContent" in actions and name:
+                found.append(name.replace("models/", ""))
+
+        # Configured model ko pehle try karo.
+        ordered = [DEFAULT_MODEL]
+        ordered.extend(found)
+
+        available_models = list(dict.fromkeys(ordered))
+
+        logging.info("Gemini models discovered: %s", found)
+        logging.info("Models to try: %s", available_models)
+
+    except Exception:
+        logging.exception("Could not list Gemini models")
+        available_models = [DEFAULT_MODEL]
 
 
 async def start(
@@ -58,23 +86,16 @@ async def reset(
     context: ContextTypes.DEFAULT_TYPE,
 ):
     chats.pop(update.effective_user.id, None)
-    await update.message.reply_text(
-        "Chat reset ho gayi! ✅"
-    )
+    await update.message.reply_text("Chat reset ho gayi! ✅")
 
 
 async def generate_answer(history):
-    # Primary model ke baad alternate models try honge.
-    # Agar koi model unavailable ho, agla model try hoga.
-    models = list(dict.fromkeys([
-        MODEL,
-        "gemini-2.5-flash",
-        "gemini-2.0-flash",
-    ]))
+    if not available_models:
+        await load_models()
 
     last_error = None
 
-    for model in models:
+    for model in available_models:
         for attempt in range(2):
             try:
                 logging.info(
@@ -93,15 +114,13 @@ async def generate_answer(history):
                 )
 
                 if response.text:
-                    logging.info(
-                        "Answer generated using %s",
-                        model,
-                    )
+                    logging.info("Success with model: %s", model)
                     return response
 
-                raise RuntimeError(
+                last_error = RuntimeError(
                     f"{model} returned an empty response"
                 )
+                break
 
             except Exception as e:
                 last_error = e
@@ -128,15 +147,24 @@ async def generate_answer(history):
                     )
                 )
 
-                # Invalid key ya model-name error par
-                # unnecessary retries nahi honge.
-                if not temporary:
+                # Invalid model ho to doosra model try karo.
+                invalid_model = (
+                    "404" in error or "NOT_FOUND" in error
+                )
+
+                if not temporary and not invalid_model:
                     raise
 
-                if attempt == 0:
+                if temporary and attempt == 0:
                     await asyncio.sleep(2)
 
-    raise last_error
+                if temporary and attempt == 1:
+                    break
+
+    if last_error:
+        raise last_error
+
+    raise RuntimeError("No Gemini models available")
 
 
 async def solve(
@@ -145,9 +173,6 @@ async def solve(
 ):
     uid = update.effective_user.id
     question = update.message.text.strip()
-
-    if not question:
-        return
 
     if len(question) > 4000:
         await update.message.reply_text(
@@ -206,26 +231,17 @@ async def solve(
 
         if "429" in error or "RESOURCE_EXHAUSTED" in error:
             message = (
-                "⏳ Gemini API ki request limit poori hai. "
-                "Thodi der baad try karein."
+                "⏳ Gemini API limit poori hai. "
+                "Kuch der baad try karein."
             )
         elif "503" in error or "UNAVAILABLE" in error:
             message = (
-                "⚠️ Gemini ke sabhi tried models busy hain. "
-                "Kuch der baad dobara try karein."
-            )
-        elif "404" in error or "NOT_FOUND" in error:
-            message = (
-                "⚠️ Gemini model available nahi hai. "
-                "FadeHost mein GEMINI_MODEL setting check karein."
+                "⚠️ Gemini ke available models abhi busy hain. "
+                "Kuch der baad try karein."
             )
         elif "403" in error or "PERMISSION_DENIED" in error:
             message = (
-                "⚠️ API permission ya quota configuration check karein."
-            )
-        elif "API_KEY" in error or "API KEY" in error:
-            message = (
-                "⚠️ Gemini API key check karein."
+                "⚠️ API permission ya quota check karein."
             )
         else:
             message = (
@@ -241,7 +257,6 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
-
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
@@ -249,7 +264,12 @@ def main():
         )
     )
 
-    logging.info("MathsGPT starting with model: %s", MODEL)
+    async def initialize(application):
+        await load_models()
+
+    app.post_init = initialize
+
+    logging.info("Starting MathsGPT")
     app.run_polling()
 
 
