@@ -20,10 +20,13 @@ logging.basicConfig(
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
+# API configuration
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+
 MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 
+# Conversation history
 chats = defaultdict(lambda: deque(maxlen=12))
 
 INSTRUCTIONS = """
@@ -38,7 +41,10 @@ Never invent a mathematical result.
 """
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
     await update.message.reply_text(
         "📐 Welcome to MathsGPT!\n\n"
         "Main Maths ke sawal step-by-step solve karta hoon.\n"
@@ -47,59 +53,106 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def reset(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
     chats.pop(update.effective_user.id, None)
-    await update.message.reply_text("Chat reset ho gayi! ✅")
+    await update.message.reply_text(
+        "Chat reset ho gayi! ✅"
+    )
 
 
 async def generate_answer(history):
-    for attempt in range(3):
-        try:
-            return await client.aio.models.generate_content(
-                model=MODEL,
-                contents=history,
-                config=types.GenerateContentConfig(
-                    system_instruction=INSTRUCTIONS,
-                    max_output_tokens=1000,
-                ),
-            )
+    # Primary model ke baad alternate models try honge.
+    # Agar koi model unavailable ho, agla model try hoga.
+    models = list(dict.fromkeys([
+        MODEL,
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+    ]))
 
-        except Exception as e:
-            error = str(e)
-            logging.exception(
-                "Gemini request failed (attempt %s/3)",
-                attempt + 1,
-            )
+    last_error = None
 
-            temporary = any(
-                code in error.upper()
-                for code in (
-                    "503",
-                    "UNAVAILABLE",
-                    "429",
-                    "RESOURCE_EXHAUSTED",
-                    "500",
-                    "502",
-                    "504",
-                    "INTERNAL",
-                    "TIMEOUT",
+    for model in models:
+        for attempt in range(2):
+            try:
+                logging.info(
+                    "Trying model %s, attempt %s/2",
+                    model,
+                    attempt + 1,
                 )
-            )
 
-            if not temporary or attempt == 2:
-                raise
+                response = await client.aio.models.generate_content(
+                    model=model,
+                    contents=history,
+                    config=types.GenerateContentConfig(
+                        system_instruction=INSTRUCTIONS,
+                        max_output_tokens=1000,
+                    ),
+                )
 
-            await asyncio.sleep(2 ** (attempt + 1))
+                if response.text:
+                    logging.info(
+                        "Answer generated using %s",
+                        model,
+                    )
+                    return response
 
-    raise RuntimeError("Gemini request failed after retries")
+                raise RuntimeError(
+                    f"{model} returned an empty response"
+                )
+
+            except Exception as e:
+                last_error = e
+                error = str(e).upper()
+
+                logging.warning(
+                    "Model %s failed: %s",
+                    model,
+                    str(e),
+                )
+
+                temporary = any(
+                    code in error
+                    for code in (
+                        "503",
+                        "UNAVAILABLE",
+                        "429",
+                        "RESOURCE_EXHAUSTED",
+                        "500",
+                        "502",
+                        "504",
+                        "INTERNAL",
+                        "TIMEOUT",
+                    )
+                )
+
+                # Invalid key ya model-name error par
+                # unnecessary retries nahi honge.
+                if not temporary:
+                    raise
+
+                if attempt == 0:
+                    await asyncio.sleep(2)
+
+    raise last_error
 
 
-async def solve(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def solve(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
     uid = update.effective_user.id
     question = update.message.text.strip()
 
+    if not question:
+        return
+
     if len(question) > 4000:
-        await update.message.reply_text("Kripya chhota sawal bhejein.")
+        await update.message.reply_text(
+            "Kripya 4000 characters se chhota sawal bhejein."
+        )
         return
 
     status = await update.message.reply_text(
@@ -127,12 +180,6 @@ async def solve(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = await generate_answer(history)
         answer = response.text
 
-        if not answer:
-            await status.edit_text(
-                "⚠️ Jawab generate nahi hua. Dobara try karein."
-            )
-            return
-
         chats[uid].append({
             "role": "user",
             "content": question,
@@ -159,27 +206,31 @@ async def solve(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if "429" in error or "RESOURCE_EXHAUSTED" in error:
             message = (
-                "⏳ Gemini API limit poori ho gayi hai. "
-                "Kuch der baad try karein."
+                "⏳ Gemini API ki request limit poori hai. "
+                "Thodi der baad try karein."
             )
         elif "503" in error or "UNAVAILABLE" in error:
             message = (
-                "⚠️ Gemini server busy hai. "
+                "⚠️ Gemini ke sabhi tried models busy hain. "
                 "Kuch der baad dobara try karein."
+            )
+        elif "404" in error or "NOT_FOUND" in error:
+            message = (
+                "⚠️ Gemini model available nahi hai. "
+                "FadeHost mein GEMINI_MODEL setting check karein."
             )
         elif "403" in error or "PERMISSION_DENIED" in error:
             message = (
                 "⚠️ API permission ya quota configuration check karein."
             )
-        elif "404" in error or "NOT_FOUND" in error:
+        elif "API_KEY" in error or "API KEY" in error:
             message = (
-                "⚠️ Gemini model nahi mila. "
-                "GEMINI_MODEL setting check karein."
+                "⚠️ Gemini API key check karein."
             )
         else:
             message = (
                 "⚠️ Jawab nahi mil saka. "
-                "Logs mein asli error check karein."
+                "FadeHost logs mein asli error dekhein."
             )
 
         await status.edit_text(message)
@@ -190,11 +241,15 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
+
     app.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, solve)
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            solve,
+        )
     )
 
-    logging.info("Starting MathsGPT with model %s", MODEL)
+    logging.info("MathsGPT starting with model: %s", MODEL)
     app.run_polling()
 
 
