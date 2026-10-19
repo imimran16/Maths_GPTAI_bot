@@ -3,7 +3,8 @@ import os
 import logging
 from collections import defaultdict, deque
 
-from openai import AsyncOpenAI
+from google import genai
+from google.genai import types
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -16,9 +17,9 @@ from telegram.ext import (
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-client = AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-MODEL = os.getenv("OPENAI_MODEL", "gpt-5-mini")
+MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 
 chats = defaultdict(lambda: deque(maxlen=12))
 
@@ -56,37 +57,55 @@ async def solve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status = await update.message.reply_text("🧮 Sawal solve ho raha hai...")
 
     try:
-        response = await client.responses.create(
+        history = []
+        for item in chats[uid]:
+            history.append({
+                "role": "model" if item["role"] == "assistant" else "user",
+                "parts": [{"text": item["content"]}],
+            })
+
+        history.append({
+            "role": "user",
+            "parts": [{"text": question}],
+        })
+
+        response = await client.aio.models.generate_content(
             model=MODEL,
-            instructions=INSTRUCTIONS,
-            input=list(chats[uid]) + [
-                {"role": "user", "content": question}
-            ],
-            max_output_tokens=1000,
+            contents=history,
+            config=types.GenerateContentConfig(
+                system_instruction=INSTRUCTIONS,
+                max_output_tokens=1000,
+            ),
         )
 
-        answer = response.output_text or "Jawab nahi mil saka."
+        answer = response.text or "Jawab nahi mil saka."
+
         chats[uid].append({"role": "user", "content": question})
         chats[uid].append({"role": "assistant", "content": answer})
 
-        chunks = [answer[i:i+4000] for i in range(0, len(answer), 4000)]
+        chunks = [
+            answer[i:i + 4000]
+            for i in range(0, len(answer), 4000)
+        ]
         await status.edit_text(chunks[0])
 
         for chunk in chunks[1:]:
             await update.message.reply_text(chunk)
 
     except Exception:
-        logging.exception("MathsGPT request failed")
+        logging.exception("Gemini request failed")
         await status.edit_text(
-            "⚠️ Abhi jawab nahi mil saka. "
-            "API key, billing aur model settings check karein."
+            "⚠️ Jawab nahi mil saka. Gemini API key, "
+            "model availability aur quota check karein."
         )
 
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, solve))
+    app.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, solve)
+    )
     app.run_polling()
 
 if __name__ == "__main__":
