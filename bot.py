@@ -15,173 +15,84 @@ from telegram.ext import (
     filters,
 )
 
-# =========================
-# LOGGING
-# =========================
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-# =========================
 # API CONFIGURATION
-# =========================
-
-client = genai.Client(
-    api_key=os.environ["GEMINI_API_KEY"]
-)
-
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 
-DEFAULT_MODEL = os.getenv(
-    "GEMINI_MODEL",
-    "gemini-3.8-flash",
-)
-
-# =========================
 # CREATOR INFORMATION
-# =========================
-
 CREATOR_NAME = "Imran"
-
 TELEGRAM_USERNAME = "@Imimran16"
 TELEGRAM_LINK = "https://t.me/Imimran16"
-
 INSTAGRAM_USERNAME = "@i_imran_533"
 INSTAGRAM_LINK = (
     "https://www.instagram.com/i_imran_533"
     "?exln=MTFoYWo1cHA5Z21vdQ=="
 )
 
-# =========================
-# CHAT HISTORY
-# =========================
-
+# CHAT DATA
 chats = defaultdict(lambda: deque(maxlen=12))
 available_models = []
 
-# =========================
-# AI INSTRUCTIONS
-# =========================
+# Latest active request for each user
+active_requests = {}
+
 
 INSTRUCTIONS = f"""
-You are MathsGPT, a friendly, intelligent and professional
-AI tutor and conversational assistant.
-
-You help students with ALL academic subjects, not only maths.
+You are MathsGPT, a friendly and professional AI tutor.
 
 SUBJECTS:
-Mathematics, Physics, Chemistry, Biology, Hindi, English,
-Urdu, History, Geography, Economics, Political Science,
-Computer Science, Sanskrit, Science, Social Science,
-NCERT, UP Board and other school subjects.
+Help with Mathematics, Physics, Chemistry, Biology, Hindi,
+English, Urdu, History, Geography, Economics, Political Science,
+Computer Science, Sanskrit and other academic subjects.
 
-LANGUAGE:
-- Understand Hindi, Hinglish, English and Urdu.
+CAPABILITIES:
+- Solve academic questions step by step.
+- Explain formulas, calculations, concepts and theory.
+- Help with grammar, essays, translations, summaries and literature.
+- Explain coding, programming and general knowledge.
+- Chat naturally and use appropriate emojis.
 - Reply in the language used by the user.
+- Give complete answers with proper finishing.
+- State the final answer clearly for numerical problems.
+- Ask for clarification if a question is unclear.
+
+LIMITATIONS:
+- You cannot directly perform physical-world tasks.
+- You cannot guarantee every answer is correct.
+- You cannot access private accounts or personal data without
+  an appropriate authorized connection.
+- You cannot guarantee live or latest information without
+  a suitable live-data source.
+- You cannot directly view photographs in this text-only bot.
+- Never pretend to have performed an action you did not perform.
+- If something is impossible, explain the limitation honestly
+  and suggest a practical alternative.
+
+ANSWER QUALITY:
 - Use simple Hindi or Hinglish when appropriate.
-- Use natural, friendly and respectful language.
-- Explain difficult concepts in an easy-to-understand way.
+- Show the necessary reasoning and calculations.
+- Do not invent facts, formulas or sources.
+- Avoid unnecessary repetition and filler.
+- Complete all parts of the requested task.
+- Do not ask unnecessary follow-up questions.
+- Use appropriate emojis naturally, without overusing them.
 
-MATHEMATICS:
-- Solve problems step by step.
-- Show formulas, substitutions and calculations.
-- Explain algebra, trigonometry, calculus, differentiation,
-  integration, geometry and other mathematical topics.
-- Clearly highlight the final answer.
-- Verify calculations before responding.
+CREATOR:
+MathsGPT was created by Imran.
+Telegram: {TELEGRAM_USERNAME} ({TELEGRAM_LINK})
+Instagram: {INSTAGRAM_USERNAME} ({INSTAGRAM_LINK})
 
-PHYSICS:
-- Explain concepts, laws, derivations and numerical problems.
-- Include formulas, units and calculations.
-- Explain the reasoning and final result.
-
-CHEMISTRY:
-- Explain organic, inorganic and physical chemistry.
-- Write and balance chemical equations correctly.
-- Explain reaction conditions, products and mechanisms
-  when relevant.
-- Never invent chemical formulas or reactions.
-
-BIOLOGY:
-- Explain genetics, ecology, cells, human physiology,
-  plant biology and other biological topics.
-- Use correct terminology, examples and clear explanations.
-
-HINDI AND URDU:
-- Help with grammar, poetry, prose, literature,
-  meanings, summaries, translations and question answers.
-- Preserve the original meaning of literary passages.
-- Use natural language and correct spelling.
-
-ENGLISH:
-- Help with grammar, vocabulary, literature, comprehension,
-  essays, letters, applications and translations.
-- Use correct grammar and appropriate formatting.
-
-OTHER SUBJECTS:
-- Help with school subjects and general academic topics.
-- Explain definitions, causes, effects, examples and concepts.
-- Follow the student's class and syllabus when specified.
-
-NORMAL CONVERSATION:
-- You can also chat naturally about everyday topics.
-- Respond warmly to greetings, thanks, jokes and casual talk.
-- Do not turn every conversation into a lesson.
-- Be friendly without being repetitive or overly formal.
-- Use emojis naturally in conversation and answers.
-- Suitable emojis include 😊, 👋, 📚, 🧠, ✨, 🎯 and ✅.
-- Use emojis sparingly and appropriately, not in every sentence.
-- Keep serious or sensitive answers respectful.
-
-ANSWER QUALITY AND FINISHING:
-- Provide complete, accurate and polished answers.
-- Never intentionally stop in the middle of an explanation.
-- Answer every part of a multi-part question.
-- Use headings and numbered steps when helpful.
-- Avoid unnecessary introductions, filler and repetition.
-- For numerical problems, show the working and final answer.
-- For theory questions, explain the topic in an organized way.
-- Finish long answers with a useful conclusion or summary.
-- Keep short answers concise but complete.
-- Do not ask an unnecessary follow-up at the end of every reply.
-- If information is missing, ask a specific clarification.
-- If uncertain, acknowledge the uncertainty instead of guessing.
-- Never claim that an unverified answer is guaranteed correct.
-
-FORMATTING:
-- Use readable paragraphs and appropriate headings.
-- Use mathematical notation when necessary.
-- Highlight important results.
-- For numerical questions, finish with:
-  "अतः अंतिम उत्तर: ..."
-  or "Final Answer: ..."
-- Match the requested answer length.
-- Use emojis where they genuinely improve readability.
-
-CREATOR INFORMATION:
-The creator of MathsGPT is Imran.
-Telegram: {TELEGRAM_USERNAME}
-Telegram link: {TELEGRAM_LINK}
-Instagram: {INSTAGRAM_USERNAME}
-Instagram link: {INSTAGRAM_LINK}
-
-If anyone asks who created, built, developed, programmed
-or owns this bot, identify Imran as its creator.
-Provide his Telegram and Instagram links when appropriate.
-Do not invent other creator details.
-
-FINAL PRIORITIES:
-Accuracy, helpfulness, friendly conversation, clear explanations,
-complete answers and proper finishing.
-Support all academic subjects, not mathematics alone.
+When asked about the creator, identify Imran and provide
+his contact links. Do not invent other creator details.
 """
 
-# =========================
-# CREATOR QUESTION DETECTOR
-# =========================
 
 def is_creator_question(text):
     text = text.lower().strip()
@@ -196,20 +107,15 @@ def is_creator_question(text):
         r"(name|details|contact)\b",
         r"\b(kisne|kis\s+ne)\s+"
         r"(banaya|banai|develop|create|program)\b",
-        r"\b(kisne|kis\s+ne)\s+banaya\s+hai\b",
         r"\b(banane\s+wala|banane\s+wale|banane\s+vale)\b",
-        r"\b(aapko|tumko|isko|ise)\s+kisne\s+banaya\b",
         r"\bwho\s+is\s+imran\b",
         r"\b(telegram|instagram)\s+(username|id|link)\b",
     ]
 
-    if any(re.search(pattern, text) for pattern in patterns):
-        return True
-
-    if re.search(r"\b(imimran16|i_imran_533)\b", text):
-        return True
-
-    return False
+    return (
+        any(re.search(p, text) for p in patterns)
+        or bool(re.search(r"\b(imimran16|i_imran_533)\b", text))
+    )
 
 
 def creator_message():
@@ -223,10 +129,7 @@ def creator_message():
     )
 
 
-# =========================
-# MODEL DISCOVERY
-# =========================
-
+# DISCOVER AVAILABLE TEXT MODELS
 async def load_models():
     global available_models
 
@@ -241,8 +144,6 @@ async def load_models():
             if "generateContent" not in actions:
                 continue
 
-            # Skip specialized models unsuitable for ordinary
-            # text-based educational answers.
             excluded = (
                 "tts",
                 "live",
@@ -257,9 +158,7 @@ async def load_models():
 
             discovered.append(name)
 
-        # Prefer the configured model, then Flash models.
         discovered = list(dict.fromkeys(discovered))
-
         discovered.sort(
             key=lambda name: (
                 0 if name == DEFAULT_MODEL else 1,
@@ -270,35 +169,31 @@ async def load_models():
 
         available_models = discovered
 
-        logging.info(
-            "Available text-generation models: %s",
-            available_models,
-        )
-
-        if not available_models:
-            logging.error("No text-generation models found.")
+        logging.info("Available models: %s", available_models)
 
     except Exception:
-        logging.exception("Could not list Gemini models")
-
-        # Fallback if model discovery fails.
+        logging.exception("Model discovery failed")
         available_models = [DEFAULT_MODEL]
 
 
-# =========================
 # TELEGRAM COMMANDS
-# =========================
-
-async def start(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Welcome to MathsGPT! 👋\n\n"
-        "Main aapka AI study assistant hoon. 📚\n\n"
-        "Main Maths, Physics, Chemistry, Biology, Hindi, "
-        "English, Urdu aur doosre subjects mein madad kar sakta hoon.\n\n"
-        "Aap apna sawal bhejiye. 🧠\n\n"
+        "Welcome to MathsGPT!\n\n"
+        "Main aapka AI study assistant hoon.\n\n"
+        "KYA KAR SAKTA HOON:\n"
+        "- Maths, Physics, Chemistry aur Biology\n"
+        "- Hindi, English, Urdu aur doosre subjects\n"
+        "- Step-by-step solutions aur theory explanations\n"
+        "- Grammar, translation, essays aur coding\n"
+        "- General questions aur normal conversation\n\n"
+        "LIMITATIONS:\n"
+        "- Is version mein photo se question solve nahi hota.\n"
+        "- Physical-world tasks khud perform nahi kar sakta.\n"
+        "- Har answer ki 100% accuracy guarantee nahi hai.\n"
+        "- Live information ke liye live-data source zaroori hai.\n\n"
+        "IMPORTANT: Naya sawal bhejne par aapka purana "
+        "ongoing sawal cancel ho jayega.\n\n"
         "/reset - Chat history clear karein\n"
         "/creator - Creator details"
     )
@@ -315,21 +210,24 @@ async def creator_command(
     )
 
 
-async def reset(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
-    chats.pop(update.effective_user.id, None)
+async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+
+    # Cancel this user's active request, if any.
+    task = active_requests.get(uid)
+    current = asyncio.current_task()
+
+    if task and task is not current and not task.done():
+        task.cancel()
+
+    chats.pop(uid, None)
 
     await update.message.reply_text(
-        "Chat history reset ho gayi! ✅"
+        "Chat history reset ho gayi. Purana ongoing kaam cancel kar diya."
     )
 
 
-# =========================
-# GEMINI ANSWER GENERATION
-# =========================
-
+# GEMINI REQUEST WITH FALLBACK
 async def generate_answer(history):
     if not available_models:
         await load_models()
@@ -355,14 +253,11 @@ async def generate_answer(history):
                 )
 
                 if response.text:
-                    logging.info(
-                        "Answer generated using %s",
-                        model,
-                    )
+                    logging.info("Success with model: %s", model)
                     return response
 
                 last_error = RuntimeError(
-                    f"{model} returned an empty response"
+                    f"{model} returned an empty answer"
                 )
                 break
 
@@ -376,10 +271,13 @@ async def generate_answer(history):
                     error,
                 )
 
-                invalid_model = (
-                    "404" in error_text
-                    or "NOT_FOUND" in error_text
-                    or "INVALID_ARGUMENT" in error_text
+                invalid_model = any(
+                    code in error_text
+                    for code in (
+                        "404",
+                        "NOT_FOUND",
+                        "INVALID_ARGUMENT",
+                    )
                 )
 
                 temporary = any(
@@ -397,7 +295,6 @@ async def generate_answer(history):
                     )
                 )
 
-                # Skip unavailable or incompatible models.
                 if invalid_model:
                     break
 
@@ -410,17 +307,11 @@ async def generate_answer(history):
     if last_error:
         raise last_error
 
-    raise RuntimeError("No usable Gemini text model found")
+    raise RuntimeError("No usable Gemini model found")
 
 
-# =========================
 # MESSAGE HANDLER
-# =========================
-
-async def solve(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def solve(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
@@ -430,27 +321,38 @@ async def solve(
     if not question:
         return
 
-    # Answer creator questions without using the AI API.
-    if is_creator_question(question):
-        await update.message.reply_text(
-            creator_message(),
-            parse_mode="HTML",
-            disable_web_page_preview=True,
-        )
-        return
-
     if len(question) > 4000:
         await update.message.reply_text(
-            "Please send a shorter message (maximum 4000 characters)."
+            "Please 4000 characters se chhota sawal bhejein."
         )
         return
 
-    # Keep the requested status text without an emoji.
-    status = await update.message.reply_text(
-        "GPT is Thinking..."
-    )
+    # New message cancels the previous request for this user.
+    current_task = asyncio.current_task()
+    previous_task = active_requests.get(uid)
+
+    if (
+        previous_task
+        and previous_task is not current_task
+        and not previous_task.done()
+    ):
+        previous_task.cancel()
+
+    active_requests[uid] = current_task
+    status = None
 
     try:
+        # Creator questions do not need Gemini.
+        if is_creator_question(question):
+            await update.message.reply_text(
+                creator_message(),
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+            return
+
+        status = await update.message.reply_text("GPT is Thinking...")
+
         history = []
 
         for item in chats[uid]:
@@ -472,23 +374,19 @@ async def solve(
         answer = response.text
 
         if not answer:
-            await status.edit_text(
-                "Jawab generate nahi ho saka. Please try again."
-            )
+            await status.edit_text("Jawab generate nahi ho saka.")
             return
 
-        # Save conversation only after successful generation.
+        # Only save completed answers.
         chats[uid].append({
             "role": "user",
             "content": question,
         })
-
         chats[uid].append({
             "role": "assistant",
             "content": answer,
         })
 
-        # Telegram text message limit is 4096 characters.
         chunks = [
             answer[i:i + 4000]
             for i in range(0, len(answer), 4000)
@@ -499,50 +397,46 @@ async def solve(
         for chunk in chunks[1:]:
             await update.message.reply_text(chunk)
 
+    except asyncio.CancelledError:
+        # A newer message has replaced this request.
+        if status is not None:
+            try:
+                await status.edit_text(
+                    "Purana sawal cancel kar diya gaya. "
+                    "Naye sawal par kaam ho raha hai."
+                )
+            except Exception:
+                pass
+
+        raise
+
     except Exception as error:
         logging.exception("MathsGPT solve failed")
 
         error_text = str(error).upper()
 
-        if (
-            "429" in error_text
-            or "RESOURCE_EXHAUSTED" in error_text
-        ):
-            message = (
-                "API request limit reached. "
-                "Please try again later. ⏳"
-            )
-
-        elif (
-            "503" in error_text
-            or "UNAVAILABLE" in error_text
-        ):
-            message = (
-                "AI service is temporarily busy. "
-                "Please try again shortly. ⏳"
-            )
-
-        elif (
-            "403" in error_text
-            or "PERMISSION_DENIED" in error_text
-        ):
-            message = (
-                "API permission or quota needs checking. "
-                "Please contact the bot administrator."
-            )
-
+        if "429" in error_text or "RESOURCE_EXHAUSTED" in error_text:
+            message = "API limit poori hai. Kuch der baad try karein."
+        elif "503" in error_text or "UNAVAILABLE" in error_text:
+            message = "AI service busy hai. Kuch der baad try karein."
+        elif "403" in error_text or "PERMISSION_DENIED" in error_text:
+            message = "API permission ya quota check karein."
         else:
-            message = (
-                "Sorry, jawab generate nahi ho saka. "
-                "Please try again. 🙏"
-            )
+            message = "Jawab nahi mil saka. FadeHost logs check karein."
 
-        await status.edit_text(message)
+        if status is not None:
+            try:
+                await status.edit_text(message)
+            except Exception:
+                logging.exception("Could not update Telegram status")
+        else:
+            await update.message.reply_text(message)
 
+    finally:
+        # An old request must not remove the newer request.
+        if active_requests.get(uid) is current_task:
+            active_requests.pop(uid, None)
 
-# =========================
-# APPLICATION STARTUP
-# =========================
 
 async def post_init(application):
     await load_models()
@@ -553,6 +447,7 @@ def main():
         Application.builder()
         .token(TOKEN)
         .post_init(post_init)
+        .concurrent_updates(True)
         .build()
     )
 
