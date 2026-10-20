@@ -1,4 +1,4 @@
-
-
+<CodeBlock language="text" editable>
 google-genai
 python-telegram-bot
+</CodeBlock>
