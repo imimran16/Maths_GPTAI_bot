@@ -530,6 +530,7 @@ async def load_models():
 # GENERATE ANSWER — LIMITED MODEL FALLBACK
 # ==================================================
 
+
 async def generate_answer(user_id, question):
     global available_models
 
@@ -545,7 +546,12 @@ async def generate_answer(user_id, question):
         "parts": [{"text": question}],
     })
 
-    models_to_try = available_models[:3]
+    # Skip the model known to be unavailable for this API access.
+    models_to_try = [
+        name for name in available_models
+        if name.removeprefix("models/") != "gemini-2.5-flash"
+    ][:3]
+
     last_error = None
 
     for index, model_name in enumerate(models_to_try):
@@ -566,7 +572,7 @@ async def generate_answer(user_id, question):
                 logger.info("Response generated with %s", model_name)
                 return answer.strip()
 
-            last_error = RuntimeError("Gemini returned an empty response.")
+            last_error = RuntimeError("Empty response from model.")
 
         except asyncio.CancelledError:
             raise
@@ -581,35 +587,38 @@ async def generate_answer(user_id, question):
                 error,
             )
 
-            # API key or quota errors should not trigger model fallbacks.
+            # Do not retry quota or authentication failures.
             if any(term in error_text for term in (
-                "api key not valid",
+                "429",
+                "quota",
+                "resource_exhausted",
                 "api_key_invalid",
+                "api key not valid",
                 "unauthenticated",
                 "permission_denied",
-                "invalid api key",
-                "resource_exhausted",
-                "quota",
-                "429",
             )):
                 raise
 
-            temporary_error = any(term in error_text for term in (
+            # Try another model for temporary availability errors
+            # or model names that are no longer available.
+            retryable = any(term in error_text for term in (
                 "503",
                 "unavailable",
                 "overloaded",
                 "high demand",
-                "deadline exceeded",
                 "timeout",
+                "deadline exceeded",
+                "404",
+                "not_found",
             ))
 
-            if not temporary_error:
+            if not retryable:
                 raise
 
             if index < len(models_to_try) - 1:
                 await asyncio.sleep(0.3)
 
-    raise RuntimeError(f"Gemini models unavailable: {last_error}")
+    raise RuntimeError(f"All fallback models failed: {last_error}")
 
 
 # ==================================================
