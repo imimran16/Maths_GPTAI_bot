@@ -104,6 +104,9 @@ Telegram link: https://t.me/Imimran16
 Instagram: @i_imran_533
 Instagram link:
 https://www.instagram.com/i_imran_533?exln=MTFoYWo1cHA5Z21vdQ==
+Instagram: @im.imran16
+Instagram link:
+https://www.instagram.com/im.imran16?dlrf=bW5uNnp6bnBiaTAy
 If asked about your creator, share these details.
 Do not claim that your creator personally wrote a response.
 
@@ -341,6 +344,9 @@ async def send_creator_info(update: Update):
         f"{TELEGRAM_USERNAME}</a>\n"
         f'📸 Instagram: <a href="{INSTAGRAM_LINK}">'
         f"{INSTAGRAM_USERNAME}</a>",
+        f'📸 Instagram: <a
+href="{INSTAGRAM_LINK}">'
+        f"{INSTAGRAM_USERNAME}</a>",
         parse_mode="HTML",
         disable_web_page_preview=True,
     )
@@ -374,7 +380,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• मैं खुद से आपका फोन या निजी accounts control नहीं कर सकता।\n"
         "• बिना संबंधित tool के फोटो edit या video create नहीं कर सकता।\n"
         "• मेरे जवाब कभी-कभी गलत हो सकते हैं; ज़रूरी जानकारी जाँचें।\n"
-        "• अपनी password, OTP या API key साझा न करें।\n\n"
+        "• अपनी password, OTP साझा न करें।\n\n"
         "🔄 नई बातचीत: /reset\n"
         "👨‍💻 Creator: /creator\n\n"
         "अपना सवाल text में भेजिए! 😊"
@@ -439,7 +445,7 @@ async def stats_command(
     # Username check: no other user should see the stats.
     if (user.username or "").lower() != CREATOR_USERNAME:
         await message.reply_text(
-            "⛔ माफ़ कीजिए, यह command केवल bot creator के लिए है।"
+            "⛔ sorry it's not for you
         )
         return
 
@@ -452,7 +458,7 @@ async def stats_command(
             f"🆕 New users today: <b>{new_today}</b>\n"
             f"🟢 Active users today: <b>{active_today}</b>\n"
             f"💬 Total text messages: <b>{total_messages}</b>\n\n"
-            "ℹ️ केवल bot से बातचीत करने वाले users गिने जाते हैं।",
+            "ℹ️ All data your users।",
             parse_mode="HTML",
         )
 
@@ -628,7 +634,7 @@ async def handle_message(
             "429", "resource_exhausted", "quota", "rate limit",
         )):
             user_message = (
-                "माफ़ कीजिए, Gemini API की limit पूरी हो गई है "
+                "माफ़ कीजिए, aap की limit पूरी हो गई है "
                 "या server busy है। कुछ देर बाद कोशिश करें। 🙏"
             )
 
@@ -636,7 +642,7 @@ async def handle_message(
             "503", "unavailable", "overloaded", "high demand",
         )):
             user_message = (
-                "माफ़ कीजिए, Gemini service अभी व्यस्त है। "
+                "माफ़ कीजिए, Educator service अभी व्यस्त है। "
                 "कृपया थोड़ी देर बाद कोशिश करें। 🙏"
             )
 
@@ -644,12 +650,12 @@ async def handle_message(
             "api key", "unauthenticated", "permission",
         )):
             user_message = (
-                "माफ़ कीजिए, Gemini API key या permissions में समस्या है।"
+                "माफ़ कीजिए, Educator Ai या permissions में समस्या है।"
             )
 
         elif "no usable text-generation model" in error_text:
             user_message = (
-                "माफ़ कीजिए, कोई उपलब्ध Gemini text model नहीं मिला। "
+                "माफ़ कीजिए, कोई उपलब्ध Ai text model नहीं मिला। "
                 "API access और model availability जाँचें।"
             )
 
