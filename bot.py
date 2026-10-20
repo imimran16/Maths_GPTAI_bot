@@ -56,10 +56,8 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
-
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("google").setLevel(logging.WARNING)
-
 logger = logging.getLogger(__name__)
 
 if not TELEGRAM_BOT_TOKEN:
@@ -91,12 +89,9 @@ Use only a few relevant emojis.
 Avoid decorative symbols and unnecessary introductions.
 Keep simple answers short.
 Explain difficult questions step by step.
-Use examples when helpful.
 For maths, show formulas, calculations and final answers.
 For code, use triple backticks around code blocks.
-Do not use Markdown tables unless genuinely useful.
 Never sacrifice accuracy for decoration.
-Keep answers concise unless the user asks for detail.
 
 EDUCATION:
 Help with Mathematics, Physics, Chemistry, Biology,
@@ -204,7 +199,6 @@ active_requests = {}
 
 def add_to_history(user_id, role, text):
     history = conversation_history[user_id]
-
     history.append({
         "role": role,
         "parts": [{"text": text}],
@@ -215,37 +209,24 @@ def add_to_history(user_id, role, text):
 
 
 # ==================================================
-# CLEAN AI FORMATTING
+# CLEAN ANSWER FORMATTING
 # ==================================================
 
 def clean_answer(text):
-    """Remove unwanted Markdown symbols without deleting the words."""
-
     text = text.strip()
 
-    # Remove Markdown code-fence markers, keeping the code content.
-    text = re.sub(
-        r"```[a-zA-Z0-9_+-]*[ \t]*\n?",
-        "",
-        text,
-    )
+    # Remove Markdown code fences while retaining their contents.
+    text = re.sub(r"```[a-zA-Z0-9_+-]*[ \t]*\n?", "", text)
     text = text.replace("```", "")
 
     # Remove paired dollar signs used as maths delimiters.
-    # Example: $x^2$ becomes x^2.
-    # A lone currency sign is preserved.
-    text = re.sub(
-        r"(?<!\$)\$([^$\n]+)\$(?!\$)",
-        r"\1",
-        text,
-    )
+    text = re.sub(r"(?<!\$)\$([^$\n]+)\$(?!\$)", r"\1", text)
 
     cleaned_lines = []
 
     for line in text.splitlines():
         stripped = line.lstrip()
 
-        # Convert headings to clean, readable headings.
         if stripped.startswith("### "):
             line = "🎯 " + stripped[4:]
         elif stripped.startswith("## "):
@@ -253,19 +234,15 @@ def clean_answer(text):
         elif stripped.startswith("# "):
             line = "✨ " + stripped[2:]
 
-        # Remove bold and italic markers.
         line = re.sub(r"\*\*(.*?)\*\*", r"\1", line)
         line = re.sub(r"(?<!\*)\*([^*\n]+)\*(?!\*)", r"\1", line)
 
-        # Remove decorative horizontal separators.
         if re.fullmatch(r"[ \t]*[-_]{3,}[ \t]*", line):
             continue
 
         cleaned_lines.append(line)
 
     text = "\n".join(cleaned_lines)
-
-    # Reduce excessive blank lines.
     text = re.sub(r"\n{3,}", "\n\n", text)
 
     return text.strip()
@@ -276,10 +253,7 @@ def clean_answer(text):
 # ==================================================
 
 async def send_long_message(message, text):
-    text = clean_answer(text)
-
-    if not text:
-        text = "माफ़ कीजिए, इस बार जवाब नहीं मिला।"
+    text = clean_answer(text) or "माफ़ कीजिए, इस बार जवाब नहीं मिला।"
 
     chunks = []
     current = ""
@@ -527,8 +501,7 @@ async def load_models():
 
             async for model in pager:
                 if is_usable_model(model):
-                    name = model.name.removeprefix("models/")
-                    found.append(name)
+                    found.append(model.name.removeprefix("models/"))
 
             found = sorted(set(found), key=model_priority)
 
@@ -554,52 +527,93 @@ async def load_models():
 
 
 # ==================================================
-# GENERATE GEMINI ANSWER — REDUCED DELAY
+# GENERATE ANSWER — LIMITED MODEL FALLBACK
 # ==================================================
 
 async def generate_answer(user_id, question):
     global available_models
 
-    # Model discovery is normally performed once at startup.
     if not available_models:
         await load_models()
 
     if not available_models:
         raise RuntimeError("No usable text-generation model found.")
 
-    # Use the preferred/fastest discovered model.
-    # Avoid trying every model on each request.
-    model_name = available_models[0]
-
     contents = list(conversation_history[user_id])
-
     contents.append({
         "role": "user",
         "parts": [{"text": question}],
     })
 
-    response = await client.aio.models.generate_content(
-        model=model_name,
-        contents=contents,
-        config=types.GenerateContentConfig(
-            system_instruction=INSTRUCTIONS,
-            temperature=0.5,
-            max_output_tokens=MAX_OUTPUT_TOKENS,
-        ),
-    )
+    models_to_try = available_models[:3]
+    last_error = None
 
-    answer = getattr(response, "text", None)
+    for index, model_name in enumerate(models_to_try):
+        try:
+            response = await client.aio.models.generate_content(
+                model=model_name,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=INSTRUCTIONS,
+                    temperature=0.5,
+                    max_output_tokens=MAX_OUTPUT_TOKENS,
+                ),
+            )
 
-    if not answer or not answer.strip():
-        raise RuntimeError("Gemini returned an empty response.")
+            answer = getattr(response, "text", None)
 
-    logger.info("Response generated with %s", model_name)
+            if answer and answer.strip():
+                logger.info("Response generated with %s", model_name)
+                return answer.strip()
 
-    return answer.strip()
+            last_error = RuntimeError("Gemini returned an empty response.")
+
+        except asyncio.CancelledError:
+            raise
+
+        except Exception as error:
+            last_error = error
+            error_text = str(error).lower()
+
+            logger.warning(
+                "Model %s failed: %s",
+                model_name,
+                error,
+            )
+
+            # API key or quota errors should not trigger model fallbacks.
+            if any(term in error_text for term in (
+                "api key not valid",
+                "api_key_invalid",
+                "unauthenticated",
+                "permission_denied",
+                "invalid api key",
+                "resource_exhausted",
+                "quota",
+                "429",
+            )):
+                raise
+
+            temporary_error = any(term in error_text for term in (
+                "503",
+                "unavailable",
+                "overloaded",
+                "high demand",
+                "deadline exceeded",
+                "timeout",
+            ))
+
+            if not temporary_error:
+                raise
+
+            if index < len(models_to_try) - 1:
+                await asyncio.sleep(0.3)
+
+    raise RuntimeError(f"Gemini models unavailable: {last_error}")
 
 
 # ==================================================
-# CONTINUOUS TELEGRAM TYPING INDICATOR
+# CONTINUOUS TYPING INDICATOR
 # ==================================================
 
 async def keep_typing(bot, chat_id, stop_event):
@@ -615,10 +629,7 @@ async def keep_typing(bot, chat_id, stop_event):
             logger.debug("Typing indicator refresh failed.")
 
         try:
-            await asyncio.wait_for(
-                stop_event.wait(),
-                timeout=4,
-            )
+            await asyncio.wait_for(stop_event.wait(), timeout=4)
         except asyncio.TimeoutError:
             pass
 
@@ -650,7 +661,6 @@ async def handle_message(update, context):
 
     previous_task = active_requests.get(user_id)
 
-    # Cancel the previous unfinished request from this user.
     if previous_task and previous_task is not current_task:
         if not previous_task.done():
             previous_task.cancel()
@@ -667,7 +677,6 @@ async def handle_message(update, context):
             await send_creator_info(update)
             return
 
-        # Start typing immediately while Gemini generates the answer.
         typing_task = asyncio.create_task(
             keep_typing(
                 context.bot,
@@ -678,11 +687,9 @@ async def handle_message(update, context):
 
         answer = await generate_answer(user_id, question)
 
-        # Store only successful exchanges.
         add_to_history(user_id, "user", question)
         add_to_history(user_id, "model", answer)
 
-        # Stop typing before sending the answer.
         stop_typing.set()
 
         if typing_task:
@@ -711,8 +718,8 @@ async def handle_message(update, context):
             "too many requests",
         )):
             user_message = (
-                "⚠️ Gemini API की limit पूरी हो गई है "
-                "या service busy है। कुछ देर बाद कोशिश करें।"
+                "⚠️ हमारा सर्वर अभी अनुरोधों की सीमा तक पहुँच गया है।\n\n"
+                "कृपया कुछ देर बाद दोबारा कोशिश करें। 🙏"
             )
 
         elif any(term in error_text for term in (
@@ -720,10 +727,12 @@ async def handle_message(update, context):
             "unavailable",
             "overloaded",
             "high demand",
+            "deadline exceeded",
+            "timeout",
         )):
             user_message = (
-                "⚠️ Gemini अभी व्यस्त है। "
-                "कृपया थोड़ी देर बाद कोशिश करें।"
+                "⚠️ हमारा सर्वर अभी व्यस्त है।\n\n"
+                "कृपया कुछ देर बाद अपना सवाल दोबारा भेजें। 🙏"
             )
 
         elif any(term in error_text for term in (
@@ -733,20 +742,20 @@ async def handle_message(update, context):
             "api_key_invalid",
         )):
             user_message = (
-                "🔑 Gemini API key या permissions में समस्या है। "
-                "FadeHost की Environment variables जाँचें।"
+                "⚠️ हमारे सर्वर की configuration में समस्या है।\n\n"
+                "कृपया बाद में दोबारा कोशिश करें। 🙏"
             )
 
         elif "no usable text-generation model" in error_text:
             user_message = (
-                "⚠️ कोई उपलब्ध Gemini text model नहीं मिला। "
-                "Model और API access जाँचें।"
+                "⚠️ हमारा सर्वर अभी AI सेवा से जुड़ नहीं पा रहा है।\n\n"
+                "कृपया कुछ देर बाद दोबारा कोशिश करें। 🙏"
             )
 
         else:
             user_message = (
-                "⚠️ अभी जवाब तैयार नहीं हो सका। "
-                "कृपया थोड़ी देर बाद फिर कोशिश करें।"
+                "⚠️ हमारा सर्वर अभी आपका जवाब तैयार नहीं कर पाया।\n\n"
+                "कृपया कुछ देर बाद फिर कोशिश करें। 🙏"
             )
 
         await message.reply_text(user_message)
@@ -819,21 +828,10 @@ def main():
         .build()
     )
 
-    application.add_handler(
-        CommandHandler("start", start_command)
-    )
-
-    application.add_handler(
-        CommandHandler("creator", creator_command)
-    )
-
-    application.add_handler(
-        CommandHandler("reset", reset_command)
-    )
-
-    application.add_handler(
-        CommandHandler("stats", stats_command)
-    )
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("creator", creator_command))
+    application.add_handler(CommandHandler("reset", reset_command))
+    application.add_handler(CommandHandler("stats", stats_command))
 
     application.add_handler(
         MessageHandler(
@@ -853,9 +851,7 @@ def main():
 
     logger.info("Starting Educator AI...")
 
-    application.run_polling(
-        drop_pending_updates=True,
-    )
+    application.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
