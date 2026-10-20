@@ -31,10 +31,17 @@ CREATOR_USERNAME = "imimran16"
 CREATOR_NAME = "Imran"
 TELEGRAM_USERNAME = "@Imimran16"
 TELEGRAM_LINK = "https://t.me/Imimran16"
+
 INSTAGRAM_USERNAME = "@i_imran_533"
 INSTAGRAM_LINK = (
     "https://www.instagram.com/i_imran_533"
     "?exln=MTFoYWo1cHA5Z21vdQ=="
+)
+
+INSTAGRAM_USERNAME_2 = "@im.imran16"
+INSTAGRAM_LINK_2 = (
+    "https://www.instagram.com/im.imran16"
+    "?dlrf=bW5uNnp6bnBiaTAy"
 )
 
 DB_NAME = "bot_stats.db"
@@ -100,13 +107,11 @@ Use headings, examples and lists when useful.
 CREATOR:
 Your creator is Imran.
 Telegram: @Imimran16
-Telegram link: https://t.me/Imimran16
+Telegram: https://t.me/Imimran16
 Instagram: @i_imran_533
-Instagram link:
-https://www.instagram.com/i_imran_533?exln=MTFoYWo1cHA5Z21vdQ==
+Instagram: https://www.instagram.com/i_imran_533?exln=MTFoYWo1cHA5Z21vdQ==
 Instagram: @im.imran16
-Instagram link:
-https://www.instagram.com/im.imran16?dlrf=bW5uNnp6bnBiaTAy
+Instagram: https://www.instagram.com/im.imran16?dlrf=bW5uNnp6bnBiaTAy
 If asked about your creator, share these details.
 Do not claim that your creator personally wrote a response.
 
@@ -125,7 +130,7 @@ about limitations. Never claim capabilities you do not possess.
 # ==================================================
 
 def init_stats_db():
-    with sqlite3.connect(DB_NAME) as conn:
+    with sqlite3.connect(DB_NAME, timeout=10) as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
@@ -142,7 +147,6 @@ def record_user(user, count_message=False):
         return
 
     now = datetime.now().astimezone().isoformat(timespec="seconds")
-    username = user.username or ""
 
     with sqlite3.connect(DB_NAME, timeout=10) as conn:
         conn.execute("""
@@ -157,7 +161,7 @@ def record_user(user, count_message=False):
                     users.total_messages + excluded.total_messages
         """, (
             user.id,
-            username,
+            user.username or "",
             now,
             now,
             1 if count_message else 0,
@@ -210,12 +214,12 @@ def is_usable_model(model):
     name = getattr(model, "name", "") or ""
     actions = getattr(model, "supported_actions", []) or []
 
-    supports_text_generation = any(
+    supports_generation = any(
         str(action).lower() == "generatecontent"
         for action in actions
     )
 
-    if not name or not supports_text_generation:
+    if not name or not supports_generation:
         return False
 
     lowered = name.lower()
@@ -260,8 +264,7 @@ async def load_models():
 
             async for model in pager:
                 if is_usable_model(model):
-                    name = model.name.removeprefix("models/")
-                    found.append(name)
+                    found.append(model.name.removeprefix("models/"))
 
             found = sorted(set(found), key=model_priority)
 
@@ -273,15 +276,19 @@ async def load_models():
                     found.insert(0, preferred)
 
             available_models = found
-            logger.info("Discovered %d usable models.", len(found))
 
-            if not found:
+            logger.info(
+                "Discovered %d usable Gemini models.",
+                len(available_models),
+            )
+
+            if not available_models:
                 logger.error("No usable text-generation models found.")
 
-            return found
+            return available_models
 
         except Exception:
-            logger.exception("Model discovery failed.")
+            logger.exception("Gemini model discovery failed.")
             return available_models
 
 
@@ -327,6 +334,7 @@ def is_creator_question(text):
         "creator kaun",
         "imimran16",
         "i_imran_533",
+        "im.imran16",
     )
 
     return any(keyword in value for keyword in keywords)
@@ -338,15 +346,18 @@ async def send_creator_info(update: Update):
     if not message:
         return
 
-    await message.reply_text(
+    text = (
         f"🤖 <b>My Creator: {escape(CREATOR_NAME)}</b>\n\n"
         f'✈️ Telegram: <a href="{TELEGRAM_LINK}">'
-        f"{TELEGRAM_USERNAME}</a>\n"
-        f'📸 Instagram: <a href="{INSTAGRAM_LINK}">'
-        f"{INSTAGRAM_USERNAME}</a>",
-        f'📸 Instagram: <a
-href="{INSTAGRAM_LINK}">'
-        f"{INSTAGRAM_USERNAME}</a>",
+        f"{escape(TELEGRAM_USERNAME)}</a>\n"
+        f'📸 Instagram 1: <a href="{INSTAGRAM_LINK}">'
+        f"{escape(INSTAGRAM_USERNAME)}</a>\n"
+        f'📸 Instagram 2: <a href="{INSTAGRAM_LINK_2}">'
+        f"{escape(INSTAGRAM_USERNAME_2)}</a>"
+    )
+
+    await message.reply_text(
+        text,
         parse_mode="HTML",
         disable_web_page_preview=True,
     )
@@ -356,7 +367,10 @@ href="{INSTAGRAM_LINK}">'
 # /START
 # ==================================================
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_command(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+):
     message = update.effective_message
     user = update.effective_user
 
@@ -376,13 +390,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💻 Computer Science और coding\n"
         "✍️ Writing, shayari और सामान्य सवाल\n\n"
         "⚠️ <b>मेरी सीमाएँ:</b>\n"
-        "• मैं सामान्य chat में text-based मदद देता हूँ।\n"
+        "• मैं text-based सहायता देता हूँ।\n"
         "• मैं खुद से आपका फोन या निजी accounts control नहीं कर सकता।\n"
         "• बिना संबंधित tool के फोटो edit या video create नहीं कर सकता।\n"
-        "• मेरे जवाब कभी-कभी गलत हो सकते हैं; ज़रूरी जानकारी जाँचें।\n"
-        "• अपनी password, OTP साझा न करें।\n\n"
+        "• AI के जवाब कभी-कभी गलत हो सकते हैं।\n"
+        "• Password, OTP या API key साझा न करें।\n\n"
         "🔄 नई बातचीत: /reset\n"
-        "👨‍💻 Creator: /creator\n\n"
+        "👨‍💻 Creator: /creator\n"
+        "📊 Creator statistics: /stats\n\n"
         "अपना सवाल text में भेजिए! 😊"
     )
 
@@ -419,7 +434,11 @@ async def reset_command(
 
     current = active_requests.get(user_id)
 
-    if current and current is not asyncio.current_task() and not current.done():
+    if (
+        current
+        and current is not asyncio.current_task()
+        and not current.done()
+    ):
         current.cancel()
 
     await message.reply_text(
@@ -442,10 +461,9 @@ async def stats_command(
     if not message or not user:
         return
 
-    # Username check: no other user should see the stats.
     if (user.username or "").lower() != CREATOR_USERNAME:
         await message.reply_text(
-            "⛔ sorry it's not for you
+            "⛔ माफ़ कीजिए, यह command केवल bot creator के लिए है।"
         )
         return
 
@@ -458,7 +476,7 @@ async def stats_command(
             f"🆕 New users today: <b>{new_today}</b>\n"
             f"🟢 Active users today: <b>{active_today}</b>\n"
             f"💬 Total text messages: <b>{total_messages}</b>\n\n"
-            "ℹ️ All data your users।",
+            "ℹ️ केवल bot से बातचीत करने वाले users गिने जाते हैं।",
             parse_mode="HTML",
         )
 
@@ -515,6 +533,7 @@ async def generate_answer(user_id, question):
 
             except Exception as error:
                 last_error = error
+
                 logger.warning(
                     "Model %s attempt %s failed: %s",
                     model_name,
@@ -577,7 +596,6 @@ async def handle_message(
     user_id = str(user.id)
     current_task = asyncio.current_task()
 
-    # Cancel the previous question if a new one arrives.
     previous_task = active_requests.get(user_id)
 
     if previous_task and previous_task is not current_task:
@@ -585,11 +603,9 @@ async def handle_message(
             previous_task.cancel()
 
     active_requests[user_id] = current_task
-
     status_message = None
 
     try:
-        # Track user and text message for analytics.
         record_user(user, count_message=True)
 
         if is_creator_question(question):
@@ -616,7 +632,6 @@ async def handle_message(
         await send_long_message(message, answer)
 
     except asyncio.CancelledError:
-        # A newer question has replaced this request.
         raise
 
     except Exception as error:
@@ -634,7 +649,7 @@ async def handle_message(
             "429", "resource_exhausted", "quota", "rate limit",
         )):
             user_message = (
-                "माफ़ कीजिए, aap की limit पूरी हो गई है "
+                "माफ़ कीजिए, Gemini API की limit पूरी हो गई है "
                 "या server busy है। कुछ देर बाद कोशिश करें। 🙏"
             )
 
@@ -642,7 +657,7 @@ async def handle_message(
             "503", "unavailable", "overloaded", "high demand",
         )):
             user_message = (
-                "माफ़ कीजिए, Educator service अभी व्यस्त है। "
+                "माफ़ कीजिए, Gemini service अभी व्यस्त है। "
                 "कृपया थोड़ी देर बाद कोशिश करें। 🙏"
             )
 
@@ -650,12 +665,12 @@ async def handle_message(
             "api key", "unauthenticated", "permission",
         )):
             user_message = (
-                "माफ़ कीजिए, Educator Ai या permissions में समस्या है।"
+                "माफ़ कीजिए, Gemini API key या permissions में समस्या है।"
             )
 
         elif "no usable text-generation model" in error_text:
             user_message = (
-                "माफ़ कीजिए, कोई उपलब्ध Ai text model नहीं मिला। "
+                "माफ़ कीजिए, कोई उपलब्ध Gemini text model नहीं मिला। "
                 "API access और model availability जाँचें।"
             )
 
@@ -668,7 +683,6 @@ async def handle_message(
         await message.reply_text(user_message)
 
     finally:
-        # Never remove a newer request's active-task entry.
         if active_requests.get(user_id) is current_task:
             active_requests.pop(user_id, None)
 
@@ -691,7 +705,7 @@ async def reject_media(
 
 
 # ==================================================
-# TELEGRAM ERROR HANDLER
+# ERROR HANDLER
 # ==================================================
 
 async def error_handler(
@@ -715,14 +729,14 @@ async def post_init(application: Application):
 
     if not available_models:
         logger.warning(
-            "No models discovered at startup; requests will retry discovery."
+            "No models discovered at startup. "
+            "Requests will retry model discovery."
         )
 
     logger.info("Educator AI initialized.")
 
 
 def main():
-    # Create the analytics database.
     init_stats_db()
 
     application = (
@@ -738,7 +752,6 @@ def main():
     application.add_handler(CommandHandler("reset", reset_command))
     application.add_handler(CommandHandler("stats", stats_command))
 
-    # Text questions only; commands are handled above.
     application.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
@@ -746,7 +759,6 @@ def main():
         )
     )
 
-    # Reject photos and image files with a clear message.
     application.add_handler(
         MessageHandler(
             filters.PHOTO | filters.Document.IMAGE,
